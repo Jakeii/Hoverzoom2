@@ -31,3 +31,10 @@
   height: 100%; top: 0;
   width: 100%; left: 0;
 }
+
+/*
+  Mediawiki interfering with <video> tags, causes images to be black boxes
+ */
+#hvzoom_img_container_main .mv-player {
+  display: none;
+}

@@ -45,3 +45,10 @@
   transition: opacity 0.2s ease-out;
   display: none;
 }
+
+/*
+  Mediawiki interfering with <video> tags, causes images to be black boxes
+ */
+#hvzoom_img_container_main .mv-player {
+  display: none;
+}
