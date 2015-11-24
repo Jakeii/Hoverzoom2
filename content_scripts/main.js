@@ -1,5 +1,5 @@
 var imageZoom = {};
-var onKey, key, mouse, transitionEnd, onMouse, listeners;
+var onKey, key, mouse, transitionEnd, onMouse, listeners, mouseOutOfRange;
 log = console.log.bind(console);
 
 function initSites() {
@@ -17,7 +17,8 @@ function initSites() {
     Sites.github,
     Sites.gravatar,
     Sites.normal,
-    Sites.deviantart
+    Sites.deviantart,
+    Sites.youtube
   ];
 }
 
@@ -138,6 +139,7 @@ imageZoom.checkHoveredLink = function() {
 
 imageZoom.transition = {
   in: function() {
+    console.log('transitioning in');
     this.fadingOut = false;
     imageZoom.active = true;
     imageZoom.startMonitor();
@@ -145,6 +147,7 @@ imageZoom.transition = {
     imageZoom.main.style.opacity = '1';
   },
   out: function() {
+    console.log('transitioning out');
     imageZoom.active = false;
     if (imageZoom.isVideo) {
       imageZoom.video.pause();
@@ -157,6 +160,7 @@ imageZoom.transition = {
     imageZoom.main.style.opacity = '0';
   },
   hide: function() {
+    console.log('transitioning hide');
     imageZoom.main.style.display = 'none';
     onMouse.ignore = false;
     this.active = false;
@@ -168,13 +172,36 @@ imageZoom.transition = {
 };
 
 imageZoom.appendVideo = function(src, elem, poster) {
+  console.log('appending video');
+  if(this.videoSource.src === src) {
+    this.main.style.display = 'block';
+    this.video.style.display = 'block';
+    this.height = this.video.videoHeight;
+    this.width  = this.video.videoWidth;
+    this.adjustImage();
+    if (!this.frozen) {
+      this.main.style.transition = 'opacity ' + this.settings.fadeVal + 's ease-out';
+    } else {
+      this.main.style.transition = 'width 2s ease-out, height 2s ease-out, opacity ' + this.settings.fadeVal + 's ease-out';
+    }
+    this.isVideo = true;
+    this.transition.in();
+    setTimeout(function() {
+      this.activeEl.style.cursor = '';
+      this.main.style.transition = 'left 0.2s ease-out, top 0.2s ease-out, opacity ' + this.settings.fadeVal + 's ease-out';
+    }.bind(this), 25);
+    this.video.play();
+    return;
+  }
   if (this.main.style.display !== 'block') {
     this.image.src = '';
     this.videoSource.src = '';
   }
   var currentElTemp = this.activeEl;
   this.main.style.transition = 'opacity ' + this.settings.fadeVal + 's ease-out';
-  this.video.removeAttribute('controls');
+  if (!this.isYt) {
+    this.video.removeAttribute('controls');
+  }
   this.image.style.display = 'none';
   currentElTemp.style.cursor = 'wait';
   if (poster) {
@@ -260,6 +287,7 @@ imageZoom.tryMatch = function(f, elem) {
   urlArray = [];
   f(elem, function(src, poster) {
     if (!src) return false;
+    src.replace('http:', 'https:');
     Sites.foundMatch = true;
     this.linkRect = elem.getBoundingClientRect();
     this.activeEl = elem;
@@ -274,6 +302,11 @@ imageZoom.testUrl = function(elem) {
   if (basicMatch(document.URL)) {
     return false;
   }
+  if (resumeMatch(elem, this.prevSourceURL)) {
+    Sites.foundMatch = false;
+    
+    return this.appendVideo(this.videoSource.src, elem, '');
+  }
   Sites.foundMatch = false;
   for (var i = 0, l = this.sites.length; i < l; i++) {
     if (Sites.foundMatch) {
@@ -283,9 +316,23 @@ imageZoom.testUrl = function(elem) {
   }
 };
 
+function resumeMatch(elem, prev) {
+  urlArray = [];
+  return getUrls([elem, elem.parentNode]).some(function(url) {
+    console.log(url);
+    console.log(prev);
+    if (url === prev) {
+      return true;
+    }
+  });
+}
+
 imageZoom.detectImage = function(elem) {
   if (!this.frozen && !key.freeze || /DIV|A|IMG/.test(elem.nodeName)) {
     setTimeout(function() {
+      if(mouseOutOfRange) {
+        return;
+      }
       if (mouse.hoverEl === elem) {
         this.testUrl(elem);
       }
@@ -400,6 +447,7 @@ transitionEnd = function(e) {
 onMouse = {
   ignore: false,
   move: function(e) {
+    mouseOutOfRange = false;
     mouse.x = e.x; mouse.y = e.y;
     if (mouse.wheelX === mouse.x && mouse.wheelY === mouse.y) {
       return false;
@@ -423,6 +471,7 @@ onMouse = {
     }
   },
   over: function(e) {
+    mouseOutOfRange = false;
     if (mouse.wheelX === mouse.x && mouse.wheelY === mouse.y) {
       return imageZoom.redetectImage = true;
     }
@@ -447,11 +496,13 @@ onMouse = {
     }
   },
   leave: function() {
+    mouseOutOfRange = true;
     if (!imageZoom.frozen) {
       imageZoom.transition.out();
     }
   },
   down: function(e) {
+    mouseOutOfRange = false;
     if (mouse.drag) {
       mouse.drag = false;
     }
@@ -474,6 +525,7 @@ onMouse = {
     }
   },
   up: function(e) {
+    mouseOutOfRange = false;
     mouse.drag = false;
     if (e.target === imageZoom.close) {
       imageZoom.closeContainer();

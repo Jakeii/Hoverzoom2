@@ -44,7 +44,7 @@ imgurAlbum = {
     this.id = id;
     this.isAlbum = true;
     imageZoom.albumIndex.innerText = this.cached[id].index + 1 + '/' + this.cached[id].images.length;
-    imageZoom.caption.innerText = this.cached[this.id].captions[this.cached[this.id].index];
+    imageZoom.caption.innerHTML = this.cached[this.id].captions[this.cached[this.id].index];
     if (imageZoom.caption.innerText.trim() !== '') {
       imageZoom.caption.style.display = 'block';
     }
@@ -64,7 +64,7 @@ imgurAlbum = {
       var img = new Image();
       img.src = this.cached[this.id].images[this.cached[this.id].index];
       if (this.isAlbum) {
-        imageZoom.caption.innerText = this.cached[this.id].captions[this.cached[this.id].index];
+        imageZoom.caption.innerHTML = this.cached[this.id].captions[this.cached[this.id].index];
         imageZoom.caption.style.display = 'block';
       }
       if (imageZoom.caption.innerHTML === '') {
@@ -152,6 +152,14 @@ Sites.livememe = function(elem, callback) {
 
 Sites.imgur = function(elem, callback) {
   function getGifvSource(url) {
+    if (url.indexOf('http:') > -1) {
+      url = url.split('http:')[1];
+    }
+
+    if (url.indexOf('https:') > -1) {
+      url = url.split('https:')[1];
+    }
+
     imageZoom.isVideo = true;
     imageZoom.videoSource.type = 'video/webm';
     var xhr = new XMLHttpRequest();
@@ -169,11 +177,11 @@ Sites.imgur = function(elem, callback) {
     };
     xhr.send();
   };
-  
+
   getUrls([elem, elem.parentNode]).forEach(function(url) {
     if (!/\/random/.test(url) && /imgur\.com/i.test(stripUrl(url))) {
       imgurAlbum.isAlbum = false;
-      
+
       if (/\.gifv?$/.test(url)) {
         getGifvSource(url);
         return;
@@ -181,7 +189,7 @@ Sites.imgur = function(elem, callback) {
       if (basicMatch(url)) {
         return callback(url);
       }
-      
+
       if (/\/a\//.test(url)) {
         return callback(imgurAlbum.getAlbum(url.replace(/.*\/a\//, '')));
       }
@@ -271,6 +279,7 @@ Sites.normal = function(elem, callback) {
 
 Sites.gfycat = function(elem, callback) {
   function getGfySource(url) {
+    url = url.replace('http', 'https');
     var xhr = new XMLHttpRequest();
     xhr.open('GET', url);
     xhr.onreadystatechange = function() {
@@ -347,4 +356,188 @@ Sites.flickr = function(elem, callback) {
       return;
     }
   });
+};
+
+Sites.youtube = function (elem, callback) {
+  getUrls([elem, elem.parentNode]).forEach(function(url) {
+    if(/(youtube\.com\/watch|youtu\.be)/i.test(url)) {
+      var xhr = new XMLHttpRequest();
+      xhr.open('GET', url);
+      imageZoom.prevSourceURL = url;
+      xhr.onreadystatechange = function() {
+        if (xhr.readyState === 4 && xhr.status === 200) {
+
+          var cfg = JSON.parse(xhr.responseText.split('ytplayer.config = ')[1].split(';ytplayer')[0]);
+
+          var streams = parseYTConfig(cfg.args);
+
+          streams = streams.filter(function (stream) {
+            return stream.dash === false;
+          });
+
+          var stream;
+
+          stream = find(function (stream) {
+            return stream.dimension === '1280x720';
+          }, streams);
+
+          if(!stream) {
+            stream = find(function (stream) {
+              return stream.dimension === '640x360';
+            }, streams);
+          }
+
+          var url = stream.url + "&cpn=" + encodeURIComponent(cfg.args.mpvid) + (stream.s || stream.sig ? "&signature=" + encodeURIComponent(stream.sig || ytcenter.utils.signatureDecipher(stream.s)) : "");
+
+
+          imageZoom.isVideo = true;
+          imageZoom.videoSource.type = stream.type.indexOf('video/webm') > -1 ? 'video/webm' : 'video/mp4';
+          imageZoom.isYt = true;
+          
+          return callback(url);
+        }
+      };
+      xhr.send();
+      return;
+    }
+  });
+};
+
+signatureDecipher = function(signatureCipher, decipherRecipe){
+  function swapHeadAndPosition(array, position) {
+    var head = array[0];
+    var other = array[position % array.length];
+    array[0] = other;
+    array[position] = head;
+    return array;
+  }
+  if (!signatureCipher) return "";
+  var cipherArray = signatureCipher.split(""), i;
+  decipherRecipe = decipherRecipe || ytcenter.settings['signatureDecipher'];
+
+  var funcMap = {};
+
+  for (i = 0; i < decipherRecipe.length; i++) {
+    if (decipherRecipe[i].func === "function") {
+      funcMap[decipherRecipe[i].name] = new Function("a", "b", decipherRecipe[i].value);
+    } else if (decipherRecipe[i].func === "call") {
+      cipherArray = funcMap[decipherRecipe[i].name](cipherArray, decipherRecipe[i].value);
+    } else if (decipherRecipe[i].func === "code") {
+      cipherArray = new Function("a", decipherRecipe[i].value + "return a.join(\"\")")(cipherArray);
+    } else if (decipherRecipe[i].func === "swapHeadAndPosition") {
+      cipherArray = swapHeadAndPosition(cipherArray, decipherRecipe[i].value);
+    } else if (decipherRecipe[i].func === "slice") {
+      cipherArray = cipherArray.slice(decipherRecipe[i].value);
+    } else if (decipherRecipe[i].func === "reverse") {
+      cipherArray = cipherArray.reverse();
+    }
+  }
+  if (!ytcenter.utils.isArray(cipherArray)) return signatureCipher;
+  return cipherArray.join("");
+};
+
+function find(predicate, thisArg) {
+    "use strict";
+    //TODO: Check predicate is a function.
+    var lastValue;
+    if(!Array.prototype.some.call(thisArg, function(val, index, arr) {
+        return predicate.call(thisArg, lastValue = val, index, arr);
+    })) {
+        return;
+    }
+    return lastValue;
+};
+
+function parseYTConfig(playerConfig){
+  if (playerConfig.url_encoded_fmt_stream_map === "") return [];
+  var parser1 = function(f){
+    var a, r = [];
+    try {
+      var a = f.split(",");
+      for (var i = 0; i < a.length; i++) {
+        var b = a[i].split("/");
+        var itag = b.shift();
+        var dimension = b.shift();
+        var minMajorFlashVersion = b.shift();
+        var minMinorFlashVersion = b.shift();
+        var revisionVersion = b.shift();
+        r.push({
+          itag: itag,
+          dimension: dimension,
+          flashVersion: {
+            minMajor: minMajorFlashVersion,
+            minMinor: minMinorFlashVersion,
+            revision: revisionVersion
+          }
+        });
+      }
+    } catch (e) {
+      console.error("[parseStreams] Error =>");
+      console.error(e);
+    }
+    return r;
+  };
+  var parser2 = function(u){
+    var a, b = [];
+    try {
+      a = u.split(",");
+      for (var i = 0; i < a.length; i++) {
+        var c = {};
+        var d = a[i].split("&");
+        for (var j = 0; j < d.length; j++) {
+          var e = d[j].split("=");
+          c[e[0]] = unescape(e[1]);
+          if (e[0] === "type") c[e[0]] = c[e[0]].replace(/\+/g, " ");
+        }
+        b.push(c);
+      }
+    } catch (e) {
+      console.error("[parseStreams] Error =>");
+      console.error(e);
+    }
+    return b;
+  };
+  var parser3 = function(u){
+    if (!u) return [];
+    var a = u.split(",");
+    var b = [];
+    for (var i = 0; i < a.length; i++) {
+      var c = {};
+      var d = a[i].split("&");
+      for (var j = 0; j < d.length; j++) {
+        var e = d[j].split("=");
+        c[e[0]] = unescape(e[1]);
+        if (e[0] === "type") c[e[0]] = c[e[0]].replace(/\+/g, " ");
+      }
+      b.push(c);
+    }
+    return b;
+  };
+  var fmt = parser1(playerConfig.fmt_list);
+  var streams = parser2(playerConfig.url_encoded_fmt_stream_map);
+  var adaptive_fmts = parser3(playerConfig.adaptive_fmts);
+  var a = [], i;
+  for (i = 0; i < streams.length; i++) {
+    var fl = null;
+    for (var j = 0; j < fmt.length; j++) {
+      if (streams[i].itag !== fmt[j].itag) continue;
+      fl = fmt[j];
+      break;
+    }
+    streams[i].dash = false;
+    if (fl == null) {
+      a.push(streams[i]);
+    } else {
+      var coll = streams[i];
+      coll.dimension = fl.dimension;
+      coll.flashVersion = fl.flashVersion;
+      a.push(coll);
+    }
+  }
+  for (i = 0; i < adaptive_fmts.length; i++) {
+    adaptive_fmts[i].dash = true;
+    a.push(adaptive_fmts[i]);
+  }
+
+  return a;
 };
